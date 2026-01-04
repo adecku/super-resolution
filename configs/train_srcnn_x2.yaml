@@ -1,0 +1,13 @@
+inherit: "configs/common.yaml"
+
+data:
+  scale: 2
+  batch_size: 16
+  val_batch_size: 1
+
+model:
+  name: "srcnn"
+  params:
+    channels: 64
+    kernel_size: 3
+

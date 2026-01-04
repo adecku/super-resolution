@@ -1,0 +1,17 @@
+inherit: "configs/common.yaml"
+
+data:
+  scale: 4
+  batch_size: 6
+  val_batch_size: 1
+
+model:
+  name: "edsr"
+  params:
+    num_feats: 64
+    num_blocks: 16
+    res_scale: 0.1
+
+train:
+  grad_accum_steps: 1
+

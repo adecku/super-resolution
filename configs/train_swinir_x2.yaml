@@ -1,0 +1,18 @@
+inherit: "configs/common.yaml"
+
+data:
+  scale: 2
+  batch_size: 3
+  val_batch_size: 1
+
+model:
+  name: "swinir"
+  params:
+    embed_dim: 96
+    depths: [6, 6, 6, 6]
+    num_heads: [6, 6, 6, 6]
+    window_size: 8
+
+train:
+  grad_accum_steps: 2
+

@@ -1,0 +1,39 @@
+project:  # Sekcja z ogólnymi informacjami o projekcie
+  name: "super_resolution"  # Nazwa projektu
+  seed: 42  # Ziarno losowości dla reprodukowalności wyników
+
+runtime:  # Sekcja ustawień runtime i środowiska wykonawczego
+  amp: true  # Automatic Mixed Precision - przyspiesza trening, oszczędza pamięć
+  num_workers: 4  # Liczba procesów worker do ładowania danych (dla DataLoader)
+
+paths:  # Sekcja ze ścieżkami do katalogów (wszystkie ścieżki względne)
+  data_root: "data/raw/DIV2K"  # Główny katalog z danymi treningowymi DIV2K
+  output_root: "outputs/runs"  # Katalog na zapisywanie wyników treningu (checkpointy, logi)
+  figures_dir: "outputs/figures"  # Katalog na zapisywanie wygenerowanych obrazów/figur
+
+data:  # Sekcja ustawień danych treningowych
+  dataset: "DIV2K"  # Nazwa używanego datasetu
+  scale: 2  # Współczynnik skalowania super-resolution (x2, x4)
+  patch_size: 96  # Rozmiar patchy wycinanej z obrazu treningowego (w pikselach)
+  batch_size: 16  # Rozmiar batcha podczas treningu
+  val_batch_size: 1  # Rozmiar batcha podczas walidacji (zwykle 1 dla pełnych obrazów)
+  lr_downsample: "bicubic"  # Metoda downsamplingu do tworzenia LR z HR (bicubic/interpolacja)
+
+model:  # Sekcja ustawień modelu
+  name: "srcnn"  # Nazwa modelu (srcnn, edsr, swinir)
+  params: {}  # Parametry specyficzne dla modelu (nadpisywane w configach dziedziczących)
+
+train:  # Sekcja ustawień treningu
+  epochs: 10  # Liczba epok treningowych
+  lr: 0.0002  # Learning rate (szybkość uczenia)
+  optimizer: "adam"  # Typ optimizera (adam, sgd, itp.)
+  weight_decay: 0.0  # Współczynnik regularyzacji L2 (weight decay)
+  grad_accum_steps: 1  # Liczba kroków akumulacji gradientu (symuluje większy batch)
+  save_every: 1  # Zapisuj checkpoint co N epok
+  log_every: 50  # Loguj metryki co N iteracji/batchy
+
+eval:  # Sekcja ustawień ewaluacji
+  metrics: ["psnr", "ssim"]  # Lista metryk do obliczania (PSNR, SSIM)
+  save_examples: true  # Czy zapisywać przykładowe obrazy podczas ewaluacji
+  num_examples: 8  # Liczba przykładowych obrazów do zapisania
+
