@@ -36,4 +36,3 @@ eval:  # Sekcja ustawień ewaluacji
   metrics: ["psnr", "ssim"]  # Lista metryk do obliczania (PSNR, SSIM)
   save_examples: true  # Czy zapisywać przykładowe obrazy podczas ewaluacji
   num_examples: 8  # Liczba przykładowych obrazów do zapisania
-

@@ -11,7 +11,7 @@ def get_device() -> torch.device:
         return torch.device("mps")
     return torch.device("cpu")
 
-#test code
-if __name__ == "__main__":
-    device = get_device()
-    print(f"Selected device: {device}")
+# Test code
+# if __name__ == "__main__":
+#     device = get_device()
+#     print(f"Selected device: {device}")
