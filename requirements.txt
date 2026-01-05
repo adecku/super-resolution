@@ -6,4 +6,4 @@ opencv-python
 scikit-image
 tensorboard
 matplotlib
-jupyter
+notebook
