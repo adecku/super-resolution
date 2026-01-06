@@ -15,7 +15,7 @@ import torch.nn.functional as F
 from PIL import Image
 
 from src.config import load_config
-from src.data.div2k import make_div2k_loaders
+from src.datasets.div2k import make_div2k_loaders
 
 
 def tensor_to_image(tensor):

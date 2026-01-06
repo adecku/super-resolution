@@ -15,7 +15,7 @@ import torch
 import torch.nn.functional as F
 
 from src.config import load_config
-from src.data.div2k import make_div2k_loaders
+from src.datasets.div2k import make_div2k_loaders
 from src.utils.metrics import psnr, ssim
 
 
@@ -88,4 +88,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
