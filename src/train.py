@@ -21,9 +21,39 @@ import yaml
 from src.config import load_config
 from src.datasets.div2k import make_div2k_loaders
 from src.models.srcnn import SRCNN
+from src.models.edsr import EDSR
 from src.utils.device import get_device
 from src.utils.metrics import psnr, ssim
 from src.utils.seed import set_seed
+
+
+def create_model(model_name, cfg, device):
+    """
+    Create model based on config.
+    
+    Args:
+        model_name: Name of the model ("srcnn" or "edsr")
+        cfg: Configuration dictionary
+        device: Device to move model to
+        
+    Returns:
+        Model instance
+    """
+    scale = cfg["data"]["scale"]
+    params = cfg["model"].get("params", {})
+    
+    if model_name == "srcnn":
+        channels = params.get("channels", 64)
+        model = SRCNN(scale=scale, channels=channels)
+    elif model_name == "edsr":
+        num_feats = params.get("num_feats", 64)
+        num_blocks = params.get("num_blocks", 16)
+        res_scale = params.get("res_scale", 0.1)
+        model = EDSR(scale=scale, num_feats=num_feats, num_blocks=num_blocks, res_scale=res_scale)
+    else:
+        raise ValueError(f"Unsupported model: '{model_name}'. Supported models: 'srcnn', 'edsr'")
+    
+    return model.to(device)
 
 
 def tensor_to_image(tensor):
@@ -57,29 +87,29 @@ def main():
     epochs = cfg["train"]["epochs"]
     lr = cfg["train"]["lr"]
     amp = cfg["runtime"]["amp"]
-    save_every = cfg["train"]["save_every"]
+    save_every = cfg["train"].get("save_every", 5)
+    val_every = cfg["train"].get("val_every", 1)
+    grad_accum_steps = cfg["train"].get("grad_accum_steps", 1)
     output_root = Path(cfg["paths"]["output_root"])
     
-    # Create model (only SRCNN for now)
-    if model_name != "srcnn":
-        raise ValueError(f"Only 'srcnn' model is supported, got '{model_name}'")
-    
-    channels = cfg["model"].get("params", {}).get("channels", 64)
-    model = SRCNN(scale=scale, channels=channels).to(device)
+    # Create model
+    model = create_model(model_name, cfg, device)
     
     # Loss and optimizer
     criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     
     # AMP setup
-    use_amp = amp and device.type in ["cuda", "mps"]
-    use_scaler = amp and device.type == "cuda"
+    use_amp = amp and device.type == "cuda"  # Only use AMP on CUDA
+    use_scaler = use_amp
     scaler = torch.cuda.amp.GradScaler() if use_scaler else None
     
     # Resume from checkpoint if provided
     start_epoch = 0
     global_step_offset = 0
+    best_psnr = -float("inf")
     resume_checkpoint = None
+    run_dir = None
     
     if args.resume:
         resume_path = Path(args.resume)
@@ -102,33 +132,32 @@ def main():
             scaler.load_state_dict(resume_checkpoint["scaler"])
             print("Loaded scaler state")
         
-        # Get starting epoch
+        # Get starting epoch and best_psnr
         if "epoch" in resume_checkpoint:
             start_epoch = resume_checkpoint["epoch"] + 1
-            # Calculate global_step offset to continue TensorBoard logging
-            global_step_offset = start_epoch * len(train_loader)
+            global_step_offset = resume_checkpoint.get("global_step", start_epoch * len(train_loader))
             print(f"Resuming from epoch {start_epoch} (checkpoint was at epoch {resume_checkpoint['epoch']})")
         else:
             print("Warning: No epoch found in checkpoint, starting from epoch 0")
         
-        # Use checkpoint's run_dir if available, otherwise create new one
+        if "best_psnr" in resume_checkpoint:
+            best_psnr = resume_checkpoint["best_psnr"]
+            print(f"Resuming best PSNR: {best_psnr:.4f} dB")
+        
+        # Use checkpoint's run_dir
         if "run_dir" in resume_checkpoint:
             run_dir = Path(resume_checkpoint["run_dir"])
             print(f"Continuing in existing run directory: {run_dir}")
         else:
-            # Create new run directory for resumed training
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            run_dir = output_root / f"srcnn_x{scale}" / f"{timestamp}_resumed"
-            run_dir.mkdir(parents=True, exist_ok=True)
-            print(f"Created new run directory for resumed training: {run_dir}")
+            raise ValueError("Checkpoint missing 'run_dir'. Cannot resume.")
     else:
         # Create run directory
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        run_dir = output_root / f"srcnn_x{scale}" / timestamp
+        run_dir = output_root / f"{model_name}_x{scale}" / timestamp
         run_dir.mkdir(parents=True, exist_ok=True)
     
-    # Save resolved config (only if not resuming to existing directory)
-    if not args.resume or (args.resume and "run_dir" not in resume_checkpoint):
+    # Save resolved config (only if not resuming)
+    if not args.resume:
         with (run_dir / "config_resolved.yaml").open("w", encoding="utf-8") as f:
             yaml.dump(cfg, f, default_flow_style=False)
     
@@ -138,8 +167,9 @@ def main():
     # Print info
     print(f"Device: {device}")
     print(f"Run directory: {run_dir}")
-    print(f"Model: {model_name}, Scale: x{scale}, Channels: {channels}")
+    print(f"Model: {model_name}, Scale: x{scale}")
     print(f"Epochs: {epochs}, Learning rate: {lr}, AMP: {use_amp}")
+    print(f"Gradient accumulation steps: {grad_accum_steps}")
     print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
     if args.resume:
         print(f"Starting from epoch {start_epoch}/{epochs}, global_step offset: {global_step_offset}")
@@ -150,75 +180,118 @@ def main():
         model.train()
         epoch_loss = 0.0
         num_batches = 0
+        optimizer.zero_grad()
         
         for batch_idx, (lr_batch, hr_batch) in enumerate(train_loader):
             lr_batch = lr_batch.to(device)
             hr_batch = hr_batch.to(device)
             
-            optimizer.zero_grad()
-            
             # Forward pass with AMP if enabled
             if use_amp:
-                with torch.autocast(device_type=device.type, enabled=use_amp):
+                with torch.autocast(device_type="cuda", enabled=use_amp):
                     output = model(lr_batch)
                     loss = criterion(output, hr_batch)
-                
-                # Backward pass
-                if use_scaler:
-                    scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
-                else:
-                    loss.backward()
-                    optimizer.step()
+                    loss = loss / grad_accum_steps  # Scale loss for gradient accumulation
             else:
                 output = model(lr_batch)
                 loss = criterion(output, hr_batch)
-                loss.backward()
-                optimizer.step()
+                loss = loss / grad_accum_steps  # Scale loss for gradient accumulation
             
-            epoch_loss += loss.item()
+            # Backward pass
+            if use_scaler:
+                scaler.scale(loss).backward()
+            else:
+                loss.backward()
+            
+            # Update weights every grad_accum_steps
+            if (batch_idx + 1) % grad_accum_steps == 0:
+                if use_scaler:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
+                optimizer.zero_grad()
+            
+            epoch_loss += loss.item() * grad_accum_steps  # Unscale for logging
             num_batches += 1
             
             # Log step loss (with offset if resuming)
             global_step = global_step_offset + epoch * len(train_loader) + batch_idx
-            writer.add_scalar("train/loss_step", loss.item(), global_step)
+            writer.add_scalar("train/loss_step", loss.item() * grad_accum_steps, global_step)
+        
+        # Handle remaining gradients if batch doesn't divide evenly
+        if num_batches % grad_accum_steps != 0:
+            if use_scaler:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
+            optimizer.zero_grad()
         
         # Calculate average loss for epoch
         avg_loss = epoch_loss / num_batches
         writer.add_scalar("train/loss_epoch", avg_loss, epoch)
         
-        # Validation
-        model.eval()
-        total_psnr = 0.0
-        total_ssim = 0.0
-        val_num_samples = 0
-        
-        with torch.no_grad():
-            for lr_val, hr_val in val_loader:
-                lr_val = lr_val.to(device)
-                hr_val = hr_val.to(device)
-                
-                if use_amp:
-                    with torch.autocast(device_type=device.type, enabled=use_amp):
+        # Validation (every val_every epochs)
+        if (epoch + 1) % val_every == 0:
+            model.eval()
+            total_psnr = 0.0
+            total_ssim = 0.0
+            val_num_samples = 0
+            
+            with torch.no_grad():
+                for lr_val, hr_val in val_loader:
+                    lr_val = lr_val.to(device)
+                    hr_val = hr_val.to(device)
+                    
+                    if use_amp:
+                        with torch.autocast(device_type="cuda", enabled=use_amp):
+                            pred_val = model(lr_val)
+                    else:
                         pred_val = model(lr_val)
-                else:
-                    pred_val = model(lr_val)
+                    
+                    # Clamp predictions to [0, 1] before metrics
+                    pred_val = pred_val.clamp(0.0, 1.0)
+                    
+                    # Calculate metrics
+                    batch_psnr = psnr(pred_val, hr_val)
+                    batch_ssim = ssim(pred_val, hr_val)
+                    
+                    batch_size = lr_val.shape[0]
+                    total_psnr += batch_psnr * batch_size
+                    total_ssim += batch_ssim * batch_size
+                    val_num_samples += batch_size
+            
+            avg_psnr = total_psnr / val_num_samples
+            avg_ssim = total_ssim / val_num_samples
+            
+            writer.add_scalar("val/psnr", avg_psnr, epoch)
+            writer.add_scalar("val/ssim", avg_ssim, epoch)
+            
+            # Save best checkpoint
+            if avg_psnr > best_psnr:
+                best_psnr = avg_psnr
+                best_checkpoint = {
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "cfg": cfg,
+                    "epoch": epoch,
+                    "loss": avg_loss,
+                    "psnr": avg_psnr,
+                    "ssim": avg_ssim,
+                    "best_psnr": best_psnr,
+                    "run_dir": str(run_dir),
+                    "global_step": global_step_offset + (epoch + 1) * len(train_loader),
+                }
+                if use_scaler and scaler is not None:
+                    best_checkpoint["scaler"] = scaler.state_dict()
                 
-                # Calculate metrics
-                batch_psnr = psnr(pred_val, hr_val)
-                batch_ssim = ssim(pred_val, hr_val)
-                
-                batch_size = lr_val.shape[0]
-                total_psnr += batch_psnr * batch_size
-                total_ssim += batch_ssim * batch_size
-                val_num_samples += batch_size
-        
-        avg_psnr = total_psnr / val_num_samples
-        avg_ssim = total_ssim / val_num_samples
-        
-        writer.add_scalar("val/psnr", avg_psnr, epoch)
-        writer.add_scalar("val/ssim", avg_ssim, epoch)
+                torch.save(best_checkpoint, run_dir / "best.pth")
+                print(f"  → New best PSNR: {best_psnr:.4f} dB (saved best.pth)")
+        else:
+            # If no validation this epoch, use previous values for checkpoint
+            avg_psnr = resume_checkpoint.get("psnr", 0.0) if resume_checkpoint else 0.0
+            avg_ssim = resume_checkpoint.get("ssim", 0.0) if resume_checkpoint else 0.0
         
         # Save examples every save_every epochs
         if (epoch + 1) % save_every == 0:
@@ -229,10 +302,13 @@ def main():
                 hr_example = hr_example.to(device)
                 
                 if use_amp:
-                    with torch.autocast(device_type=device.type, enabled=use_amp):
+                    with torch.autocast(device_type="cuda", enabled=use_amp):
                         pred_example = model(lr_example)
                 else:
                     pred_example = model(lr_example)
+                
+                # Clamp before saving images
+                pred_example = pred_example.clamp(0.0, 1.0)
                 
                 # Save first 4 samples
                 examples_dir = run_dir / "examples" / f"ep{epoch}"
@@ -256,8 +332,8 @@ def main():
                     tensor_to_image(pred_example[i]).save(sample_dir / "pred.png")
                     tensor_to_image(hr_example[i]).save(sample_dir / "hr.png")
         
-        # Save checkpoint
-        checkpoint = {
+        # Save last checkpoint
+        last_checkpoint = {
             "model": model.state_dict(),
             "optimizer": optimizer.state_dict(),
             "cfg": cfg,
@@ -265,20 +341,24 @@ def main():
             "loss": avg_loss,
             "psnr": avg_psnr,
             "ssim": avg_ssim,
-            "run_dir": str(run_dir),  # Save run_dir for resume
+            "best_psnr": best_psnr,
+            "run_dir": str(run_dir),
+            "global_step": global_step_offset + (epoch + 1) * len(train_loader),
         }
-        # Save scaler state if using scaler
         if use_scaler and scaler is not None:
-            checkpoint["scaler"] = scaler.state_dict()
+            last_checkpoint["scaler"] = scaler.state_dict()
         
-        torch.save(checkpoint, run_dir / f"ckpt_ep{epoch}.pth")
+        torch.save(last_checkpoint, run_dir / "last.pth")
+        
+        # Also save epoch checkpoint
+        torch.save(last_checkpoint, run_dir / f"ckpt_ep{epoch}.pth")
         
         print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.6f}, PSNR: {avg_psnr:.4f} dB, SSIM: {avg_ssim:.6f}")
     
     writer.close()
     print(f"\nTraining completed. Checkpoints saved to: {run_dir}")
+    print(f"Best PSNR: {best_psnr:.4f} dB")
 
 
 if __name__ == "__main__":
     main()
-
