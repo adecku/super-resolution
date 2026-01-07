@@ -36,6 +36,7 @@ def tensor_to_image(tensor):
 def main():
     parser = argparse.ArgumentParser(description="Train super-resolution model")
     parser.add_argument("--config", type=str, required=True, help="Path to config YAML")
+    parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
     args = parser.parse_args()
     
     # Load config
@@ -75,16 +76,63 @@ def main():
     use_scaler = amp and device.type == "cuda"
     scaler = torch.cuda.amp.GradScaler() if use_scaler else None
     
-    # Create run directory
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_dir = output_root / f"srcnn_x{scale}" / timestamp
-    run_dir.mkdir(parents=True, exist_ok=True)
+    # Resume from checkpoint if provided
+    start_epoch = 0
+    global_step_offset = 0
+    resume_checkpoint = None
     
-    # Save resolved config
-    with (run_dir / "config_resolved.yaml").open("w", encoding="utf-8") as f:
-        yaml.dump(cfg, f, default_flow_style=False)
+    if args.resume:
+        resume_path = Path(args.resume)
+        if not resume_path.exists():
+            raise FileNotFoundError(f"Resume checkpoint not found: {resume_path}")
+        
+        print(f"Resuming from checkpoint: {resume_path}")
+        resume_checkpoint = torch.load(resume_path, map_location=device, weights_only=False)
+        
+        # Load model state
+        model.load_state_dict(resume_checkpoint["model"])
+        
+        # Load optimizer state if available
+        if "optimizer" in resume_checkpoint:
+            optimizer.load_state_dict(resume_checkpoint["optimizer"])
+            print("Loaded optimizer state")
+        
+        # Load scaler state if available and using scaler
+        if use_scaler and "scaler" in resume_checkpoint:
+            scaler.load_state_dict(resume_checkpoint["scaler"])
+            print("Loaded scaler state")
+        
+        # Get starting epoch
+        if "epoch" in resume_checkpoint:
+            start_epoch = resume_checkpoint["epoch"] + 1
+            # Calculate global_step offset to continue TensorBoard logging
+            global_step_offset = start_epoch * len(train_loader)
+            print(f"Resuming from epoch {start_epoch} (checkpoint was at epoch {resume_checkpoint['epoch']})")
+        else:
+            print("Warning: No epoch found in checkpoint, starting from epoch 0")
+        
+        # Use checkpoint's run_dir if available, otherwise create new one
+        if "run_dir" in resume_checkpoint:
+            run_dir = Path(resume_checkpoint["run_dir"])
+            print(f"Continuing in existing run directory: {run_dir}")
+        else:
+            # Create new run directory for resumed training
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            run_dir = output_root / f"srcnn_x{scale}" / f"{timestamp}_resumed"
+            run_dir.mkdir(parents=True, exist_ok=True)
+            print(f"Created new run directory for resumed training: {run_dir}")
+    else:
+        # Create run directory
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        run_dir = output_root / f"srcnn_x{scale}" / timestamp
+        run_dir.mkdir(parents=True, exist_ok=True)
     
-    # TensorBoard writer
+    # Save resolved config (only if not resuming to existing directory)
+    if not args.resume or (args.resume and "run_dir" not in resume_checkpoint):
+        with (run_dir / "config_resolved.yaml").open("w", encoding="utf-8") as f:
+            yaml.dump(cfg, f, default_flow_style=False)
+    
+    # TensorBoard writer (will append to existing logs if resuming)
     writer = SummaryWriter(log_dir=str(run_dir))
     
     # Print info
@@ -93,10 +141,12 @@ def main():
     print(f"Model: {model_name}, Scale: x{scale}, Channels: {channels}")
     print(f"Epochs: {epochs}, Learning rate: {lr}, AMP: {use_amp}")
     print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
+    if args.resume:
+        print(f"Starting from epoch {start_epoch}/{epochs}, global_step offset: {global_step_offset}")
     print()
     
     # Training loop
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         model.train()
         epoch_loss = 0.0
         num_batches = 0
@@ -130,8 +180,8 @@ def main():
             epoch_loss += loss.item()
             num_batches += 1
             
-            # Log step loss
-            global_step = epoch * len(train_loader) + batch_idx
+            # Log step loss (with offset if resuming)
+            global_step = global_step_offset + epoch * len(train_loader) + batch_idx
             writer.add_scalar("train/loss_step", loss.item(), global_step)
         
         # Calculate average loss for epoch
@@ -215,7 +265,12 @@ def main():
             "loss": avg_loss,
             "psnr": avg_psnr,
             "ssim": avg_ssim,
+            "run_dir": str(run_dir),  # Save run_dir for resume
         }
+        # Save scaler state if using scaler
+        if use_scaler and scaler is not None:
+            checkpoint["scaler"] = scaler.state_dict()
+        
         torch.save(checkpoint, run_dir / f"ckpt_ep{epoch}.pth")
         
         print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.6f}, PSNR: {avg_psnr:.4f} dB, SSIM: {avg_ssim:.6f}")
