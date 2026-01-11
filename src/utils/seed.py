@@ -18,7 +18,6 @@ def set_seed(seed: int) -> None:
 
 
 if __name__ == "__main__":
-    # Test reproducibility
     set_seed(42)
     tensor1 = torch.randn(3, 3)
     
@@ -27,4 +26,3 @@ if __name__ == "__main__":
     
     assert torch.allclose(tensor1, tensor2), "Tensors should be identical with same seed"
     print("✓ Seed test passed: tensors are identical")
-
