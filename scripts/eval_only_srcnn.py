@@ -1,4 +1,4 @@
-"""Evaluate SRCNN model on DIV2K validation set."""
+"""Evaluate super-resolution models on DIV2K validation set."""
 
 import argparse
 import json
@@ -18,8 +18,38 @@ from PIL import Image
 from src.config import load_config
 from src.datasets.div2k import make_div2k_loaders
 from src.models.srcnn import SRCNN
+from src.models.edsr import EDSR
 from src.utils.device import get_device
 from src.utils.metrics import psnr, ssim
+
+
+def create_model(model_name, cfg, device):
+    """
+    Create model based on config.
+    
+    Args:
+        model_name: Name of the model ("srcnn" or "edsr")
+        cfg: Configuration dictionary
+        device: Device to move model to
+        
+    Returns:
+        Model instance
+    """
+    scale = cfg["data"]["scale"]
+    params = cfg["model"].get("params", {})
+    
+    if model_name == "srcnn":
+        channels = params.get("channels", 64)
+        model = SRCNN(scale=scale, channels=channels)
+    elif model_name == "edsr":
+        num_feats = params.get("num_feats", 64)
+        num_blocks = params.get("num_blocks", 16)
+        res_scale = params.get("res_scale", 0.1)
+        model = EDSR(scale=scale, num_feats=num_feats, num_blocks=num_blocks, res_scale=res_scale)
+    else:
+        raise ValueError(f"Unsupported model: '{model_name}'. Supported models: 'srcnn', 'edsr'")
+    
+    return model.to(device)
 
 
 def tensor_to_image(tensor):
@@ -30,7 +60,7 @@ def tensor_to_image(tensor):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate SRCNN model on DIV2K validation set")
+    parser = argparse.ArgumentParser(description="Evaluate super-resolution model on DIV2K validation set")
     parser.add_argument("--config", type=str, required=True, help="Path to config YAML")
     parser.add_argument("--ckpt", type=str, required=True, help="Path to checkpoint file")
     args = parser.parse_args()
@@ -38,10 +68,8 @@ def main():
     # Load config
     cfg = load_config(args.config)
     
-    # Validate model name
+    # Get model name
     model_name = cfg["model"]["name"]
-    if model_name != "srcnn":
-        raise ValueError(f"This script only supports SRCNN, got '{model_name}'")
     
     # Get device
     device = get_device()
@@ -62,76 +90,33 @@ def main():
         print("Using config from checkpoint")
         # Use checkpoint config for model params, but keep provided config for data paths
         scale = ckpt_cfg["data"]["scale"]
-        channels = ckpt_cfg["model"].get("params", {}).get("channels", 64)
+        model_name = ckpt_cfg["model"]["name"]
         # Update cfg with checkpoint config for data loading
         cfg["data"]["scale"] = scale
+        cfg["model"]["name"] = model_name
+        if "params" in ckpt_cfg["model"]:
+            cfg["model"]["params"] = ckpt_cfg["model"]["params"]
     else:
         print("Using config from --config argument")
         scale = cfg["data"]["scale"]
-        channels = cfg["model"].get("params", {}).get("channels", 64)
-        
-        # Try to infer channels from checkpoint weights if mismatch occurs
-        state_dict = checkpoint["model"]
-        if "conv1.weight" in state_dict:
-            ckpt_conv1_out = state_dict["conv1.weight"].shape[0]
-            if ckpt_conv1_out != channels:
-                print(f"Warning: Config specifies channels={channels}, but checkpoint has conv1 output channels={ckpt_conv1_out}")
-                print(f"Using channels={ckpt_conv1_out} from checkpoint")
-                channels = ckpt_conv1_out
     
     # Create validation loader only
     _, val_loader = make_div2k_loaders(cfg)
     print(f"Validation batches: {len(val_loader)}")
     
     # Create model
-    print(f"Creating SRCNN model: scale={scale}, channels={channels}")
-    model = SRCNN(scale=scale, channels=channels).to(device)
+    print(f"Creating {model_name} model: scale={scale}")
+    model = create_model(model_name, cfg, device)
     
-    # Load model weights with error handling
+    # Load model weights
     try:
         model.load_state_dict(checkpoint["model"], strict=True)
-        print("Model weights loaded successfully (strict=True)")
+        print("Model weights loaded successfully")
     except RuntimeError as e:
-        print(f"\nWarning: Could not load weights with strict=True")
-        print(f"Error: {e}")
-        print("\nAttempting to infer model parameters from checkpoint weights...")
-        
-        # Try to infer parameters from checkpoint
-        state_dict = checkpoint["model"]
-        inferred_channels = None
-        if "conv1.weight" in state_dict:
-            inferred_channels = state_dict["conv1.weight"].shape[0]
-            print(f"Inferred channels={inferred_channels} from conv1.weight shape")
-        
-        if inferred_channels and inferred_channels != channels:
-            print(f"Recreating model with inferred channels={inferred_channels}")
-            model = SRCNN(scale=scale, channels=inferred_channels).to(device)
-            try:
-                model.load_state_dict(checkpoint["model"], strict=True)
-                print("Model weights loaded successfully with inferred parameters")
-                channels = inferred_channels  # Update for later use
-            except RuntimeError as e2:
-                print(f"Still failed with inferred parameters: {e2}")
-                raise RuntimeError(
-                    f"Model architecture mismatch. Checkpoint was saved with different architecture.\n"
-                    f"Current model: channels={channels}, scale={scale}\n"
-                    f"Checkpoint suggests: channels={inferred_channels}\n"
-                    f"Please use the same config that was used for training this checkpoint."
-                )
-        else:
-            # Try strict=False as last resort
-            print("Attempting to load with strict=False (partial loading)...")
-            result = model.load_state_dict(checkpoint["model"], strict=False)
-            if result.missing_keys:
-                print(f"Missing keys (not loaded): {result.missing_keys}")
-            if result.unexpected_keys:
-                print(f"Unexpected keys (ignored): {result.unexpected_keys}")
-            if result.missing_keys:
-                raise RuntimeError(
-                    f"Cannot load checkpoint: missing keys {result.missing_keys}. "
-                    f"Checkpoint architecture doesn't match current model."
-                )
-            print("Model weights loaded with strict=False (some keys ignored)")
+        print(f"Error loading weights: {e}")
+        raise RuntimeError(
+            f"Model architecture mismatch. Please use the same config that was used for training this checkpoint."
+        )
     
     model.eval()
     
@@ -180,7 +165,7 @@ def main():
     print(f"  Number of samples: {num_samples}")
     
     # Create output directory
-    output_dir = Path("outputs/figures") / f"eval_srcnn_x{scale}"
+    output_dir = Path("outputs/figures") / f"eval_{model_name}_x{scale}"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Save metrics to JSON

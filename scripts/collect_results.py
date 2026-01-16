@@ -35,7 +35,7 @@ def extract_model_from_path(path: Path) -> str:
     if "swinir" in parent_name.lower():
         return "swinir"
     
-    return "unknown"
+    return "unknown/baseline"
 
 
 def extract_epoch_from_checkpoint(checkpoint_path: str) -> int | None:
@@ -206,7 +206,7 @@ def main():
     # Group by model
     by_model = {}
     for entry in results:
-        model = entry.get("model", "unknown")
+        model = entry.get("model", "unknown/baseline")
         if model not in by_model:
             by_model[model] = []
         by_model[model].append(entry)

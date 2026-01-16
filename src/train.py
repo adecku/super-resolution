@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -171,12 +172,16 @@ def main():
     print(f"Epochs: {epochs}, Learning rate: {lr}, AMP: {use_amp}")
     print(f"Gradient accumulation steps: {grad_accum_steps}")
     print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
+    lr_sample, hr_sample = next(iter(train_loader))
+    print(f"Train batch shape - LR: {lr_sample.shape}, HR: {hr_sample.shape}")
     if args.resume:
         print(f"Starting from epoch {start_epoch}/{epochs}, global_step offset: {global_step_offset}")
     print()
     
     # Training loop
     for epoch in range(start_epoch, epochs):
+        epoch_start_time = time.time()
+        
         model.train()
         epoch_loss = 0.0
         num_batches = 0
@@ -353,7 +358,10 @@ def main():
         # Also save epoch checkpoint
         torch.save(last_checkpoint, run_dir / f"ckpt_ep{epoch}.pth")
         
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.6f}, PSNR: {avg_psnr:.4f} dB, SSIM: {avg_ssim:.6f}")
+        # Calculate epoch time
+        epoch_time = time.time() - epoch_start_time
+        
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.6f}, PSNR: {avg_psnr:.4f} dB, SSIM: {avg_ssim:.6f}, Time: {epoch_time:.1f}s")
     
     writer.close()
     print(f"\nTraining completed. Checkpoints saved to: {run_dir}")
