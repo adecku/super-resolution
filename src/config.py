@@ -22,16 +22,26 @@ def load_config(path: str | Path) -> dict:
         config = yaml.safe_load(f) or {}
     
     if "inherit" in config:
-        inherit_path = Path(config.pop("inherit"))
+        inherit_path_str = config.pop("inherit")
+        inherit_path = Path(inherit_path_str)
+        
         # If inherit path is absolute, use it directly
-        # If it starts with "configs/", resolve from current working directory
-        # Otherwise, resolve relative to current config's directory
         if inherit_path.is_absolute():
             base_path = inherit_path
-        elif str(inherit_path).startswith("configs/"):
-            base_path = Path.cwd() / inherit_path
         else:
-            base_path = path.parent / inherit_path
+            # Handle relative paths
+            # If inherit_path starts with the same directory name as path.parent,
+            # remove that prefix to avoid duplication (e.g., "configs/common.yaml" 
+            # when already in "configs/" directory)
+            inherit_parts = inherit_path.parts
+            parent_name = path.parent.name
+            
+            if inherit_parts and inherit_parts[0] == parent_name:
+                # Remove the duplicate directory name
+                inherit_path = Path(*inherit_parts[1:])
+            
+            # Resolve relative to current config's directory
+            base_path = (path.parent / inherit_path).resolve()
         config = _merge_dicts(load_config(base_path), config)
     
     return config
