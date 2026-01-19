@@ -43,3 +43,6 @@ events.out.tfevents.*
 
 # Cursor
 .cursor/
+
+#TODO.TXT
+TODO.TXT

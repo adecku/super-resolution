@@ -19,6 +19,7 @@ from src.config import load_config
 from src.datasets.div2k import make_div2k_loaders
 from src.models.srcnn import SRCNN
 from src.models.edsr import EDSR
+from src.models.swinir import SwinIR
 from src.utils.device import get_device
 from src.utils.metrics import psnr, ssim
 
@@ -28,7 +29,7 @@ def create_model(model_name, cfg, device):
     Create model based on config.
     
     Args:
-        model_name: Name of the model ("srcnn" or "edsr")
+        model_name: Name of the model ("srcnn", "edsr", or "swinir")
         cfg: Configuration dictionary
         device: Device to move model to
         
@@ -46,8 +47,30 @@ def create_model(model_name, cfg, device):
         num_blocks = params.get("num_blocks", 16)
         res_scale = params.get("res_scale", 0.1)
         model = EDSR(scale=scale, num_feats=num_feats, num_blocks=num_blocks, res_scale=res_scale)
+    elif model_name == "swinir":
+        embed_dim = params.get("embed_dim", 96)
+        depths = params.get("depths", [6, 6, 6, 6])
+        num_heads = params.get("num_heads", [6, 6, 6, 6])
+        window_size = params.get("window_size", 8)
+        mlp_ratio = params.get("mlp_ratio", 4.0)
+        qkv_bias = params.get("qkv_bias", True)
+        drop_rate = params.get("drop_rate", 0.0)
+        attn_drop_rate = params.get("attn_drop_rate", 0.0)
+        drop_path_rate = params.get("drop_path_rate", 0.1)
+        model = SwinIR(
+            scale=scale,
+            embed_dim=embed_dim,
+            depths=depths,
+            num_heads=num_heads,
+            window_size=window_size,
+            mlp_ratio=mlp_ratio,
+            qkv_bias=qkv_bias,
+            drop_rate=drop_rate,
+            attn_drop_rate=attn_drop_rate,
+            drop_path_rate=drop_path_rate
+        )
     else:
-        raise ValueError(f"Unsupported model: '{model_name}'. Supported models: 'srcnn', 'edsr'")
+        raise ValueError(f"Unsupported model: '{model_name}'. Supported models: 'srcnn', 'edsr', 'swinir'")
     
     return model.to(device)
 
