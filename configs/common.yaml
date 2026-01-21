@@ -31,7 +31,7 @@ train:  # Sekcja ustawień treningu
   grad_accum_steps: 1  # Liczba kroków akumulacji gradientu (symuluje większy batch)
   save_every: 1  # Zapisuj checkpoint co N epok
   log_every: 50  # Loguj metryki co N iteracji/batchy
-  full_image: true  # Jeśli true, trening na pełnych obrazach (batch_size automatycznie 1, bez augmentacji)
+  full_image: false  # Jeśli true, trening na pełnych obrazach (batch_size automatycznie 1, bez augmentacji)
 
 eval:  # Sekcja ustawień ewaluacji
   metrics: ["psnr", "ssim"]  # Lista metryk do obliczania (PSNR, SSIM)
