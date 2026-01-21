@@ -24,7 +24,7 @@ model:  # Sekcja ustawień modelu
   params: {}  # Parametry specyficzne dla modelu (nadpisywane w configach dziedziczących)
 
 train:  # Sekcja ustawień treningu
-  epochs: 10  # Liczba epok treningowych
+  epochs: 30  # Liczba epok treningowych
   lr: 0.0002  # Learning rate (szybkość uczenia)
   optimizer: "adam"  # Typ optimizera (adam, sgd, itp.)
   weight_decay: 0.0  # Współczynnik regularyzacji L2 (weight decay)
