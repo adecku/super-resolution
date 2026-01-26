@@ -25,4 +25,4 @@ if __name__ == "__main__":
     tensor2 = torch.randn(3, 3)
     
     assert torch.allclose(tensor1, tensor2), "Tensors should be identical with same seed"
-    print("✓ Seed test passed: tensors are identical")
+    print("Seed test passed: tensors are identical")

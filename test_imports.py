@@ -12,7 +12,6 @@ This script checks:
 import sys
 from pathlib import Path
 
-# Add project root to path
 project_root = Path(__file__).parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
@@ -25,7 +24,6 @@ def test_imports():
     
     errors = []
     
-    # Test src.datasets.div2k
     try:
         from src.datasets.div2k import make_div2k_loaders, DIV2KDataset
         print("[OK] src.datasets.div2k")
@@ -33,7 +31,6 @@ def test_imports():
         print(f"[FAIL] src.datasets.div2k - {e}")
         errors.append("src.datasets.div2k")
     
-    # Test src.config
     try:
         from src.config import load_config
         print("[OK] src.config")
@@ -41,7 +38,6 @@ def test_imports():
         print(f"[FAIL] src.config - {e}")
         errors.append("src.config")
     
-    # Test src.utils.metrics
     try:
         from src.utils.metrics import psnr, ssim
         print("[OK] src.utils.metrics")
@@ -49,7 +45,6 @@ def test_imports():
         print(f"[FAIL] src.utils.metrics - {e}")
         errors.append("src.utils.metrics")
     
-    # Test src.utils.device
     try:
         from src.utils.device import get_device
         print("[OK] src.utils.device")
@@ -57,7 +52,6 @@ def test_imports():
         print(f"[FAIL] src.utils.device - {e}")
         errors.append("src.utils.device")
     
-    # Test src.utils.seed
     try:
         from src.utils.seed import set_seed
         print("[OK] src.utils.seed")
@@ -75,19 +69,15 @@ def test_pathlib():
     print("=" * 60)
     
     try:
-        # Test basic path operations
         test_path = Path("data/raw/DIV2K") / "DIV2K_train_HR"
         print(f"[OK] Path joining: {test_path}")
         
-        # Test resolve
         resolved = Path(__file__).resolve()
         print(f"[OK] Path.resolve(): {resolved}")
         
-        # Test parent
         parent = Path(__file__).parent
         print(f"[OK] Path.parent: {parent}")
         
-        # Test cross-platform path separator
         parts = test_path.parts
         print(f"[OK] Path.parts: {parts}")
         
@@ -106,7 +96,6 @@ def test_config_loading():
     try:
         from src.config import load_config
         
-        # Test loading common config
         config_path = Path("configs/common.yaml")
         if config_path.exists():
             cfg = load_config(config_path)
@@ -158,7 +147,6 @@ def test_metrics():
         import torch
         from src.utils.metrics import psnr, ssim
         
-        # Test with identical images
         img1 = torch.rand(3, 64, 64)
         img2 = img1.clone()
         
@@ -168,7 +156,6 @@ def test_metrics():
         print(f"[OK] PSNR for identical images: {psnr_val}")
         print(f"[OK] SSIM for identical images: {ssim_val:.6f}")
         
-        # Test with different images
         img3 = torch.rand(3, 64, 64)
         psnr_val2 = psnr(img1, img3)
         ssim_val2 = ssim(img1, img3)
@@ -194,7 +181,6 @@ def main():
     
     all_passed = True
     
-    # Run tests
     import_errors = test_imports()
     if import_errors:
         all_passed = False

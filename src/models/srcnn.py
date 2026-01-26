@@ -42,7 +42,6 @@ class SRCNN(nn.Module):
         Returns:
             Output tensor of shape (N, 3, H*scale, W*scale) in range [0, 1]
         """
-        # Bicubic upsampling to target resolution
         x = F.interpolate(
             x,
             scale_factor=self.scale,
@@ -50,30 +49,8 @@ class SRCNN(nn.Module):
             align_corners=False
         )
         
-        # Three convolutional layers with ReLU
         x = self.relu(self.conv1(x))
         x = self.relu(self.conv2(x))
         x = self.conv3(x)
         
         return x
-
-
-if __name__ == "__main__":
-    # Mini-test
-    model = SRCNN(scale=2, channels=64)
-    
-    # Create random input tensor
-    x = torch.rand(1, 3, 96, 96)
-    
-    # Forward pass
-    with torch.no_grad():
-        output = model(x)
-    
-    print(f"Input shape: {x.shape}")
-    print(f"Output shape: {output.shape}")
-    print(f"Expected output shape: (1, 3, {96*2}, {96*2}) = (1, 3, 192, 192)")
-    
-    # Verify output shape
-    assert output.shape == (1, 3, 192, 192), f"Expected (1, 3, 192, 192), got {output.shape}"
-    print("Shape verification passed!")
-

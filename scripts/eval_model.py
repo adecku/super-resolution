@@ -5,7 +5,6 @@ import json
 import sys
 from pathlib import Path
 
-# Add project root to path so imports work when running directly
 current_file = Path(__file__).resolve()
 project_root = current_file.parent.parent
 if str(project_root) not in sys.path:
@@ -88,33 +87,22 @@ def main():
     parser.add_argument("--ckpt", type=str, required=True, help="Path to checkpoint file")
     args = parser.parse_args()
     
-    # Load config
     cfg = load_config(args.config)
-    
-    # Get model name
     model_name = cfg["model"]["name"]
-    
-    # Get device
     device = get_device()
     print(f"Device: {device}")
     
-    # Load checkpoint first to check its config
     ckpt_path = Path(args.ckpt)
     if not ckpt_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
     
-    # Load checkpoint with weights_only=False for compatibility with checkpoints
-    # that may contain numpy scalars or other non-weight objects
     checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
     
-    # Try to use config from checkpoint if available, otherwise use provided config
     if "cfg" in checkpoint:
         ckpt_cfg = checkpoint["cfg"]
         print("Using config from checkpoint")
-        # Use checkpoint config for model params, but keep provided config for data paths
         scale = ckpt_cfg["data"]["scale"]
         model_name = ckpt_cfg["model"]["name"]
-        # Update cfg with checkpoint config for data loading
         cfg["data"]["scale"] = scale
         cfg["model"]["name"] = model_name
         if "params" in ckpt_cfg["model"]:
@@ -123,15 +111,12 @@ def main():
         print("Using config from --config argument")
         scale = cfg["data"]["scale"]
     
-    # Create validation loader only
     _, val_loader = make_div2k_loaders(cfg)
     print(f"Validation batches: {len(val_loader)}")
     
-    # Create model
     print(f"Creating {model_name} model: scale={scale}")
     model = create_model(model_name, cfg, device)
     
-    # Load model weights
     try:
         model.load_state_dict(checkpoint["model"], strict=True)
         print("Model weights loaded successfully")
@@ -147,12 +132,9 @@ def main():
     if "epoch" in checkpoint:
         print(f"Checkpoint epoch: {checkpoint['epoch']}")
     
-    # Evaluate on validation set
     total_psnr = 0.0
     total_ssim = 0.0
     num_samples = 0
-    
-    # Store first batch for visualization
     first_batch = None
     
     print("\nEvaluating on validation set...")
@@ -161,10 +143,8 @@ def main():
             lr_batch = lr_batch.to(device)
             hr_batch = hr_batch.to(device)
             
-            # Forward pass
             pred_batch = model(lr_batch)
             
-            # Calculate metrics for this batch
             batch_psnr = psnr(pred_batch, hr_batch)
             batch_ssim = ssim(pred_batch, hr_batch)
             
@@ -173,25 +153,20 @@ def main():
             total_ssim += batch_ssim * batch_size
             num_samples += batch_size
             
-            # Store first batch for visualization
             if first_batch is None:
                 first_batch = (lr_batch, hr_batch, pred_batch)
     
-    # Calculate averages
     avg_psnr = total_psnr / num_samples
     avg_ssim = total_ssim / num_samples
     
-    # Print results
     print(f"\nResults:")
     print(f"  PSNR: {avg_psnr:.4f} dB")
     print(f"  SSIM: {avg_ssim:.6f}")
     print(f"  Number of samples: {num_samples}")
     
-    # Create output directory
     output_dir = Path("outputs/figures") / f"eval_{model_name}_x{scale}"
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Save metrics to JSON
     metrics = {
         "scale": scale,
         "psnr": float(avg_psnr),
@@ -207,7 +182,6 @@ def main():
     
     print(f"\nMetrics saved to: {metrics_file}")
     
-    # Save example images (first 4 samples from first batch)
     if first_batch is not None:
         lr_examples, hr_examples, pred_examples = first_batch
         
@@ -218,19 +192,17 @@ def main():
             sample_dir = output_dir / f"sample_{i}"
             sample_dir.mkdir(exist_ok=True)
             
-            lr_sample = lr_examples[i]  # (C, H, W)
-            hr_sample = hr_examples[i]  # (C, H, W)
-            pred_sample = pred_examples[i]  # (C, H, W)
+            lr_sample = lr_examples[i]
+            hr_sample = hr_examples[i]
+            pred_sample = pred_examples[i]
             
-            # Bicubic upsampling for comparison
             lr_bicubic = F.interpolate(
-                lr_sample.unsqueeze(0),  # Add batch dimension
+                lr_sample.unsqueeze(0),
                 size=(hr_sample.shape[1], hr_sample.shape[2]),
                 mode="bicubic",
                 align_corners=False
-            ).squeeze(0)  # Remove batch dimension
+            ).squeeze(0)
             
-            # Save images
             tensor_to_image(lr_bicubic).save(sample_dir / "bicubic.png")
             tensor_to_image(pred_sample).save(sample_dir / "pred.png")
             tensor_to_image(hr_sample).save(sample_dir / "hr.png")
@@ -240,5 +212,5 @@ def main():
         print(f"\nAll outputs saved to: {output_dir}")
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()

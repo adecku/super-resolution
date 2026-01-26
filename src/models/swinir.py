@@ -3,7 +3,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
 
 
 def window_partition(x, window_size):
@@ -79,32 +78,26 @@ class SwinTransformerBlock(nn.Module):
         )
     
     def forward(self, x, H, W):
-        # x shape: (B, H*W, C)
         B, L, C = x.shape
         
-        # Layer norm before attention
         shortcut = x
         x = self.norm1(x)
         x = x.view(B, H, W, C)
         
-        # Window partition
         pad_l = pad_t = 0
         pad_r = (self.window_size - W % self.window_size) % self.window_size
         pad_b = (self.window_size - H % self.window_size) % self.window_size
         x = F.pad(x, (0, 0, pad_l, pad_r, pad_t, pad_b))
         _, Hp, Wp, _ = x.shape
         
-        x_windows = window_partition(x, self.window_size)  # (nW*B, window_size, window_size, C)
-        x_windows = x_windows.view(-1, self.window_size * self.window_size, C)  # (nW*B, window_size*window_size, C)
+        x_windows = window_partition(x, self.window_size)
+        x_windows = x_windows.view(-1, self.window_size * self.window_size, C)
         
-        # Window attention
-        attn_windows = self.attn(x_windows)  # (nW*B, window_size*window_size, C)
+        attn_windows = self.attn(x_windows)
         
-        # Merge windows
         attn_windows = attn_windows.view(-1, self.window_size, self.window_size, C)
-        x = window_reverse(attn_windows, self.window_size, Hp, Wp)  # (B, Hp, Wp, C)
+        x = window_reverse(attn_windows, self.window_size, Hp, Wp)
         
-        # Remove padding
         if pad_r > 0 or pad_b > 0:
             x = x[:, :H, :W, :].contiguous()
         
@@ -150,23 +143,14 @@ class RSTB(nn.Module):
         self.conv = nn.Conv2d(dim, dim, kernel_size=3, padding=1)
     
     def forward(self, x, H, W):
-        # x shape: (B, H*W, C)
         shortcut = x
         
-        # Apply Swin Transformer layers
         for layer in self.layers:
             x = layer(x, H, W)
         
-        # Convert to spatial: (B, H*W, C) -> (B, C, H, W)
         x = x.transpose(1, 2).view(x.shape[0], self.dim, H, W)
-        
-        # Convolution
         x = self.conv(x)
-        
-        # Convert back: (B, C, H, W) -> (B, H*W, C)
         x = x.flatten(2).transpose(1, 2)
-        
-        # Residual connection
         x = x + shortcut
         
         return x
@@ -203,10 +187,8 @@ class SwinIR(nn.Module):
         self.embed_dim = embed_dim
         self.window_size = window_size
         
-        # Shallow Feature Extraction (patch embedding)
         self.patch_embed = nn.Conv2d(in_chans, embed_dim, kernel_size=3, padding=1)
         
-        # Deep Feature Extraction (RSTBs)
         if isinstance(depths, (tuple, list)):
             num_rstbs = len(depths)
             depths_list = depths
@@ -219,7 +201,6 @@ class SwinIR(nn.Module):
         else:
             num_heads_list = [num_heads] * num_rstbs
         
-        # Build drop path rates
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths_list))]
         
         self.rstbs = nn.ModuleList()
@@ -243,10 +224,8 @@ class SwinIR(nn.Module):
             self.rstbs.append(rstb)
             cur += depth
         
-        # Convolution after RSTBs (before reconstruction)
         self.conv_after_body = nn.Conv2d(embed_dim, embed_dim, kernel_size=3, padding=1)
         
-        # Reconstruction Module
         if scale == 2:
             self.upsample = nn.Sequential(
                 nn.Conv2d(embed_dim, embed_dim * 4, kernel_size=3, padding=1),
@@ -262,7 +241,6 @@ class SwinIR(nn.Module):
         else:
             raise ValueError(f"Scale must be 2 or 4, got {scale}")
         
-        # Output convolution
         self.conv_last = nn.Conv2d(embed_dim, in_chans, kernel_size=3, padding=1)
     
     def forward(self, x):
@@ -277,76 +255,17 @@ class SwinIR(nn.Module):
         """
         B, C, H, W = x.shape
         
-        # Shallow Feature Extraction
-        x_shallow = self.patch_embed(x)  # (B, embed_dim, H, W)
+        x_shallow = self.patch_embed(x)
+        x = x_shallow.flatten(2).transpose(1, 2)
         
-        # Convert to sequence for RSTBs: (B, embed_dim, H, W) -> (B, H*W, embed_dim)
-        x = x_shallow.flatten(2).transpose(1, 2)  # (B, H*W, embed_dim)
-        
-        # Deep Feature Extraction (RSTBs)
         for rstb in self.rstbs:
             x = rstb(x, H, W)
         
-        # Convert back to spatial: (B, H*W, embed_dim) -> (B, embed_dim, H, W)
         x = x.transpose(1, 2).view(B, self.embed_dim, H, W)
-        
-        # Convolution after body
         x = self.conv_after_body(x)
-        
-        # Shallow-to-deep residual connection
         x = x + x_shallow
         
-        # Reconstruction Module (upsampling)
-        x = self.upsample(x)  # (B, embed_dim, H*scale, W*scale)
-        
-        # Output convolution
-        x = self.conv_last(x)  # (B, 3, H*scale, W*scale)
+        x = self.upsample(x)
+        x = self.conv_last(x)
         
         return x
-
-
-if __name__ == "__main__":
-    # Smoke test
-    print("Testing SwinIR model...")
-    
-    # Test x2 scale
-    model_x2 = SwinIR(scale=2, embed_dim=96, depths=(6, 6, 6, 6), num_heads=(6, 6, 6, 6), window_size=8)
-    lr = torch.rand(1, 3, 64, 64)
-    
-    with torch.no_grad():
-        output = model_x2(lr)
-    
-    print(f"\nScale x2:")
-    print(f"  Input shape: {lr.shape}")
-    print(f"  Output shape: {output.shape}")
-    print(f"  Expected: (1, 3, {64*2}, {64*2}) = (1, 3, 128, 128)")
-    assert output.shape == (1, 3, 128, 128), f"Expected (1, 3, 128, 128), got {output.shape}"
-    print("  ✓ Shape verification passed!")
-    
-    # Test x4 scale
-    model_x4 = SwinIR(scale=4, embed_dim=96, depths=(6, 6, 6, 6), num_heads=(6, 6, 6, 6), window_size=8)
-    lr = torch.rand(1, 3, 64, 64)
-    
-    with torch.no_grad():
-        output = model_x4(lr)
-    
-    print(f"\nScale x4:")
-    print(f"  Input shape: {lr.shape}")
-    print(f"  Output shape: {output.shape}")
-    print(f"  Expected: (1, 3, {64*4}, {64*4}) = (1, 3, 256, 256)")
-    assert output.shape == (1, 3, 256, 256), f"Expected (1, 3, 256, 256), got {output.shape}"
-    print("  ✓ Shape verification passed!")
-    
-    # Test with different input size (checking padding works)
-    lr_var = torch.rand(1, 3, 65, 67)  # Not divisible by window_size
-    with torch.no_grad():
-        output_var = model_x2(lr_var)
-    
-    print(f"\nVariable input size test:")
-    print(f"  Input shape: {lr_var.shape}")
-    print(f"  Output shape: {output_var.shape}")
-    print(f"  Expected: (1, 3, {65*2}, {67*2}) = (1, 3, 130, 134)")
-    assert output_var.shape == (1, 3, 130, 134), f"Expected (1, 3, 130, 134), got {output_var.shape}"
-    print("  ✓ Variable size test passed!")
-    
-    print("\n✓ All tests passed!")

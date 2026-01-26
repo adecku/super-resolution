@@ -5,7 +5,6 @@ import sys
 import time
 from pathlib import Path
 
-# Add project root to path so imports work when running directly
 current_file = Path(__file__).resolve()
 project_root = current_file.parent.parent
 if str(project_root) not in sys.path:
@@ -54,7 +53,6 @@ def benchmark_inference(model, val_loader, device, num_batches=10, warmup_batche
     """
     model.eval()
     
-    # Warmup
     print(f"Warming up with {warmup_batches} batches...")
     with torch.no_grad():
         for i, (lr_batch, _) in enumerate(val_loader):
@@ -63,11 +61,9 @@ def benchmark_inference(model, val_loader, device, num_batches=10, warmup_batche
             lr_batch = lr_batch.to(device)
             _ = model(lr_batch)
     
-    # Synchronize if CUDA
     if device.type == "cuda":
         torch.cuda.synchronize()
     
-    # Benchmark
     print(f"Benchmarking with {num_batches} batches...")
     times = []
     
@@ -78,15 +74,12 @@ def benchmark_inference(model, val_loader, device, num_batches=10, warmup_batche
             
             lr_batch = lr_batch.to(device)
             
-            # Synchronize before timing
             if device.type == "cuda":
                 torch.cuda.synchronize()
             
-            # Measure time
             start_time = time.perf_counter()
             _ = model(lr_batch)
             
-            # Synchronize after forward pass
             if device.type == "cuda":
                 torch.cuda.synchronize()
             
@@ -107,18 +100,13 @@ def main():
     parser.add_argument("--warmup-batches", type=int, default=2, help="Number of warmup batches (default: 2)")
     args = parser.parse_args()
     
-    # Load config
     cfg = load_config(args.config)
-    
-    # Get device
     device = get_device()
     print(f"Device: {device}")
     
-    # Extract model name
     model_name = cfg["model"]["name"]
     scale = cfg["data"]["scale"]
     
-    # Create validation loader
     _, val_loader = make_div2k_loaders(cfg)
     batch_size = cfg["data"]["val_batch_size"]
     
@@ -126,10 +114,8 @@ def main():
     print(f"Batch size: {batch_size}")
     print(f"Validation batches available: {len(val_loader)}")
     
-    # Create model
     model = create_model(model_name, cfg, device)
     
-    # Load checkpoint
     ckpt_path = Path(args.ckpt)
     if not ckpt_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
@@ -141,7 +127,6 @@ def main():
     print(f"Loaded checkpoint: {ckpt_path}")
     print()
     
-    # Benchmark
     avg_time_ms = benchmark_inference(
         model, 
         val_loader, 
@@ -150,7 +135,6 @@ def main():
         warmup_batches=args.warmup_batches
     )
     
-    # Print results
     print()
     print("=" * 60)
     print("Benchmark Results:")
@@ -163,6 +147,5 @@ def main():
     print("=" * 60)
 
 
-if __name__ == "__main__":
-    main()
-
+# if __name__ == "__main__":
+#     main()

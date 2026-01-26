@@ -53,17 +53,11 @@ def main():
     parser.add_argument("--config", type=str, required=True, help="Path to config YAML")
     args = parser.parse_args()
     
-    # Load config
     cfg = load_config(args.config)
-    
-    # Set seed
     seed = cfg.get("project", {}).get("seed", 42)
     set_seed(seed)
-    
-    # Get device
     device = get_device()
     
-    # Extract config values with fallbacks
     scale = cfg.get("data", {}).get("scale", 2)
     patch_size = cfg.get("data", {}).get("patch_size", 96)
     batch_size = cfg.get("data", {}).get("batch_size", 16)
@@ -73,40 +67,30 @@ def main():
     output_root = cfg.get("paths", {}).get("output_root", "outputs/runs")
     model_name = cfg.get("model", {}).get("name", "unknown")
     
-    # Create run directory
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     run_dir = Path(output_root) / f"{model_name}_x{scale}" / timestamp
     run_dir.mkdir(parents=True, exist_ok=True)
     
-    # Save resolved config
     import yaml
     with (run_dir / "config_resolved.yaml").open("w", encoding="utf-8") as f:
         yaml.dump(cfg, f, default_flow_style=False)
     
-    # TensorBoard writer
     writer = SummaryWriter(log_dir=str(run_dir))
     
-    # Print info
     print(f"Device: {device}")
     print(f"Run directory: {run_dir}")
     print(f"Model: {model_name}, Scale: x{scale}, Epochs: {epochs}, Batch size: {batch_size}")
     
-    # Dataset and DataLoader
     dataset = DummyDataset(num_samples=1000, patch_size=patch_size, scale=scale)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
-    # Model
     model = DummyModel(scale=scale).to(device)
-    
-    # Loss and optimizer
     criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     
-    # AMP setup
     use_scaler = amp and device.type == "cuda"
     scaler = torch.cuda.amp.GradScaler() if use_scaler else None
     
-    # Training loop
     for epoch in range(epochs):
         model.train()
         epoch_loss = 0.0
@@ -139,13 +123,11 @@ def main():
             epoch_loss += loss.item()
             num_batches += 1
             
-            # Log step loss
             writer.add_scalar("train/loss_step", loss.item(), epoch * len(dataloader) + batch_idx)
         
         avg_loss = epoch_loss / num_batches
         writer.add_scalar("train/loss_epoch", avg_loss, epoch)
         
-        # Save checkpoint
         checkpoint = {
             "model": model.state_dict(),
             "cfg": cfg,
@@ -161,7 +143,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# uruchomienie
-# python -m src.train_smoke_test --config configs/train_srcnn_x2.yaml
-

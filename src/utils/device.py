@@ -11,14 +11,7 @@ def get_device() -> torch.device:
         return torch.device("mps")
     return torch.device("cpu")
 
-# Test code
+
 if __name__ == "__main__":
     device = get_device()
     print(f"Selected device: {device}")
-
-
-# PC 
-# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-
-# MAC
-# pip install torch torchvision torchaudio

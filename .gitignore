@@ -46,3 +46,6 @@ events.out.tfevents.*
 
 #TODO.TXT
 TODO.TXT
+
+# smoke test
+src/train_smoke_test.py
