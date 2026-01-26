@@ -1,13 +1,4 @@
-"""Test script to verify all imports and cross-platform compatibility.
-
-Usage:
-    python test_imports.py
-
-This script checks:
-- All module imports work correctly
-- Pathlib cross-platform compatibility
-- Script imports work from different directories
-"""
+"""Test script to verify all imports and cross-platform compatibility."""
 
 import sys
 from pathlib import Path
