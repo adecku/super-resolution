@@ -190,5 +190,5 @@ def main():
             print(f"    Scales: {', '.join(f'x{s}' for s in scales)}")
 
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()

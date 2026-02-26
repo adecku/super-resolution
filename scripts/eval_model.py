@@ -212,5 +212,5 @@ def main():
         print(f"\nAll outputs saved to: {output_dir}")
 
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()

@@ -63,6 +63,6 @@ def main():
     print(f"HR shape: {hr.shape}")
 
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()
 
