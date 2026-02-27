@@ -5,6 +5,7 @@ import torch
 from src.models.srcnn import SRCNN
 from src.models.edsr import EDSR
 from src.models.swinir import SwinIR
+from src.models.srresnet import SRResNet
 
 
 def create_model(model_name: str, cfg: dict, device: torch.device):
@@ -43,7 +44,11 @@ def create_model(model_name: str, cfg: dict, device: torch.device):
             attn_drop_rate=attn_drop_rate,
             drop_path_rate=drop_path_rate,
         )
+    elif model_name == "srgan":
+        num_feats = params.get("num_feats", 64)
+        num_blocks = params.get("num_blocks", 16)
+        model = SRResNet(scale=scale, num_feats=num_feats, num_blocks=num_blocks)
     else:
-        raise ValueError(f"Unsupported model: '{model_name}'. Supported models: 'srcnn', 'edsr', 'swinir'")
+        raise ValueError(f"Unsupported model: '{model_name}'. Supported models: 'srcnn', 'edsr', 'swinir', 'srgan'")
 
     return model.to(device)

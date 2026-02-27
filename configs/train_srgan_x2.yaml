@@ -1,0 +1,31 @@
+inherit: "configs/common.yaml"
+
+data:
+  scale: 2
+  batch_size: 4
+  val_batch_size: 1
+
+model:
+  name: "srgan"
+  params:
+    num_feats: 64
+    num_blocks: 16
+  discriminator:
+    base_channels: 64
+
+train:
+  epochs: 30
+  lr: 0.0001
+  lr_g: 0.0001
+  lr_d: 0.0001
+  betas: [0.9, 0.999]
+  grad_accum_steps: 1
+  srgan:
+    pretrain_epochs: 10
+    lambda_pixel: 1.0
+    lambda_perceptual: 1.0
+    lambda_gan: 0.001
+    d_updates_per_g: 1
+    label_smoothing: 0.0
+    vgg_feature_layer: 35
+    vgg_pretrained: true
