@@ -5,6 +5,28 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def drop_path(x, drop_prob=0.0, training=False):
+    """Drop paths (Stochastic Depth) per sample."""
+    if drop_prob == 0.0 or not training:
+        return x
+    keep_prob = 1 - drop_prob
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+    random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+    random_tensor.floor_()
+    return x.div(keep_prob) * random_tensor
+
+
+class DropPath(nn.Module):
+    """Stochastic depth."""
+
+    def __init__(self, drop_prob=0.0):
+        super().__init__()
+        self.drop_prob = float(drop_prob)
+
+    def forward(self, x):
+        return drop_path(x, self.drop_prob, self.training)
+
+
 def window_partition(x, window_size):
     """Partition image into windows."""
     B, H, W, C = x.shape
@@ -65,7 +87,7 @@ class SwinTransformerBlock(nn.Module):
         
         self.norm1 = nn.LayerNorm(dim)
         self.attn = WindowAttention(dim, window_size, num_heads, qkv_bias, attn_drop)
-        self.drop_path = nn.Identity()  # Simplified: no drop_path
+        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         
         self.norm2 = nn.LayerNorm(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
@@ -124,6 +146,13 @@ class RSTB(nn.Module):
                  qkv_bias=True, drop=0.0, attn_drop=0.0, drop_path=0.1):
         super().__init__()
         self.dim = dim
+
+        if isinstance(drop_path, (tuple, list)):
+            if len(drop_path) != depth:
+                raise ValueError(f"drop_path list length ({len(drop_path)}) must match depth ({depth})")
+            drop_path_list = [float(x) for x in drop_path]
+        else:
+            drop_path_list = [float(drop_path)] * depth
         
         # Multiple Swin Transformer layers
         self.layers = nn.ModuleList([
@@ -135,8 +164,8 @@ class RSTB(nn.Module):
                 qkv_bias=qkv_bias,
                 drop=drop,
                 attn_drop=attn_drop,
-                drop_path=drop_path
-            ) for _ in range(depth)
+                drop_path=drop_path_list[i]
+            ) for i in range(depth)
         ])
         
         # Convolution before residual connection
@@ -219,7 +248,7 @@ class SwinIR(nn.Module):
                 qkv_bias=qkv_bias,
                 drop=drop_rate,
                 attn_drop=attn_drop_rate,
-                drop_path=drop_path[0] if drop_path else 0.0
+                drop_path=drop_path
             )
             self.rstbs.append(rstb)
             cur += depth

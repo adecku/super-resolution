@@ -14,27 +14,8 @@ import torch
 
 from src.config import load_config
 from src.datasets.div2k import make_div2k_loaders
-from src.models.srcnn import SRCNN
-from src.models.edsr import EDSR
+from src.models.factory import create_model
 from src.utils.device import get_device
-
-
-def create_model(model_name, cfg, device):
-    """Create model based on config."""
-    scale = cfg["data"]["scale"]
-    
-    if model_name == "srcnn":
-        channels = cfg["model"].get("params", {}).get("channels", 64)
-        model = SRCNN(scale=scale, channels=channels)
-    elif model_name == "edsr":
-        num_feats = cfg["model"].get("params", {}).get("num_feats", 64)
-        num_blocks = cfg["model"].get("params", {}).get("num_blocks", 16)
-        res_scale = cfg["model"].get("params", {}).get("res_scale", 0.1)
-        model = EDSR(scale=scale, num_feats=num_feats, num_blocks=num_blocks, res_scale=res_scale)
-    else:
-        raise ValueError(f"Unsupported model: {model_name}")
-    
-    return model.to(device)
 
 
 def benchmark_inference(model, val_loader, device, num_batches=10, warmup_batches=2):

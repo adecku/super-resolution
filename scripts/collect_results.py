@@ -14,20 +14,28 @@ if str(project_root) not in sys.path:
 
 def extract_model_from_path(path: Path) -> str:
     """Extract model name from path like 'eval_srcnn_x2' or 'bicubic_baseline_x2'."""
+    file_name_lower = path.name.lower()
+    file_stem_lower = path.stem.lower()
     parent_name = path.parent.name
+    parent_name_lower = parent_name.lower()
     
-    if parent_name.startswith("eval_"):
-        model = parent_name.replace("eval_", "").split("_x")[0]
-        return model
-    
-    if "bicubic" in parent_name.lower() or "baseline" in parent_name.lower():
+    if "bicubic" in file_name_lower or "baseline" in file_name_lower:
+        return "bicubic"
+    if "bicubic" in file_stem_lower or "baseline" in file_stem_lower:
         return "bicubic"
     
-    if "srcnn" in parent_name.lower():
+    if parent_name_lower.startswith("eval_"):
+        model = parent_name_lower.replace("eval_", "").split("_x")[0]
+        return model
+    
+    if "bicubic" in parent_name_lower or "baseline" in parent_name_lower:
+        return "bicubic"
+    
+    if "srcnn" in parent_name_lower:
         return "srcnn"
-    if "edsr" in parent_name.lower():
+    if "edsr" in parent_name_lower:
         return "edsr"
-    if "swinir" in parent_name.lower():
+    if "swinir" in parent_name_lower:
         return "swinir"
     
     return "unknown/baseline"

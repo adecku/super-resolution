@@ -16,8 +16,8 @@ def psnr(pred, target):
     Returns:
         PSNR value in dB. Returns float("inf") if images are identical.
     """
-    pred = pred.cpu()
-    target = target.cpu()
+    pred = pred.detach().clamp(0.0, 1.0).cpu()
+    target = target.detach().clamp(0.0, 1.0).cpu()
     
     if pred.dim() == 3:
         pred = pred.unsqueeze(0)
@@ -42,10 +42,10 @@ def ssim(pred, target):
         target: Target image tensor, shape (C, H, W) or (N, C, H, W)
         
     Returns:
-        SSIM value in [0, 1]. Higher is better.
+        SSIM value (typically in [-1, 1], often close to [0, 1] for natural images). Higher is better.
     """
-    pred = pred.cpu()
-    target = target.cpu()
+    pred = pred.detach().clamp(0.0, 1.0).cpu()
+    target = target.detach().clamp(0.0, 1.0).cpu()
     
     if pred.dim() == 3:
         pred = pred.unsqueeze(0)

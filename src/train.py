@@ -20,63 +20,10 @@ import yaml
 
 from src.config import load_config
 from src.datasets.div2k import make_div2k_loaders
-from src.models.srcnn import SRCNN
-from src.models.edsr import EDSR
-from src.models.swinir import SwinIR
+from src.models.factory import create_model
 from src.utils.device import get_device
 from src.utils.metrics import psnr, ssim
 from src.utils.seed import set_seed
-
-
-def create_model(model_name, cfg, device):
-    """
-    Create model based on config.
-    
-    Args:
-        model_name: Name of the model ("srcnn", "edsr", or "swinir")
-        cfg: Configuration dictionary
-        device: Device to move model to
-        
-    Returns:
-        Model instance
-    """
-    scale = cfg["data"]["scale"]
-    params = cfg["model"].get("params", {})
-    
-    if model_name == "srcnn":
-        channels = params.get("channels", 64)
-        model = SRCNN(scale=scale, channels=channels)
-    elif model_name == "edsr":
-        num_feats = params.get("num_feats", 64)
-        num_blocks = params.get("num_blocks", 16)
-        res_scale = params.get("res_scale", 0.1)
-        model = EDSR(scale=scale, num_feats=num_feats, num_blocks=num_blocks, res_scale=res_scale)
-    elif model_name == "swinir":
-        embed_dim = params.get("embed_dim", 96)
-        depths = params.get("depths", [6, 6, 6, 6])
-        num_heads = params.get("num_heads", [6, 6, 6, 6])
-        window_size = params.get("window_size", 8)
-        mlp_ratio = params.get("mlp_ratio", 4.0)
-        qkv_bias = params.get("qkv_bias", True)
-        drop_rate = params.get("drop_rate", 0.0)
-        attn_drop_rate = params.get("attn_drop_rate", 0.0)
-        drop_path_rate = params.get("drop_path_rate", 0.1)
-        model = SwinIR(
-            scale=scale,
-            embed_dim=embed_dim,
-            depths=depths,
-            num_heads=num_heads,
-            window_size=window_size,
-            mlp_ratio=mlp_ratio,
-            qkv_bias=qkv_bias,
-            drop_rate=drop_rate,
-            attn_drop_rate=attn_drop_rate,
-            drop_path_rate=drop_path_rate
-        )
-    else:
-        raise ValueError(f"Unsupported model: '{model_name}'. Supported models: 'srcnn', 'edsr', 'swinir'")
-    
-    return model.to(device)
 
 
 def tensor_to_image(tensor):
@@ -179,6 +126,7 @@ def main():
     
     for epoch in range(start_epoch, epochs):
         epoch_start_time = time.time()
+        epoch_offset = epoch - start_epoch
         
         model.train()
         epoch_loss = 0.0
@@ -215,7 +163,7 @@ def main():
             epoch_loss += loss.item() * grad_accum_steps
             num_batches += 1
             
-            global_step = global_step_offset + epoch * len(train_loader) + batch_idx
+            global_step = global_step_offset + epoch_offset * len(train_loader) + batch_idx
             writer.add_scalar("train/loss_step", loss.item() * grad_accum_steps, global_step)
         
         if num_batches % grad_accum_steps != 0:
@@ -228,6 +176,9 @@ def main():
         
         avg_loss = epoch_loss / num_batches
         writer.add_scalar("train/loss_epoch", avg_loss, epoch)
+        avg_psnr = None
+        avg_ssim = None
+        current_global_step = global_step_offset + (epoch_offset + 1) * len(train_loader)
         
         if (epoch + 1) % val_every == 0:
             model.eval()
@@ -274,17 +225,13 @@ def main():
                     "ssim": avg_ssim,
                     "best_psnr": best_psnr,
                     "run_dir": str(run_dir),
-                    "global_step": global_step_offset + (epoch + 1) * len(train_loader),
+                    "global_step": current_global_step,
                 }
                 if use_scaler and scaler is not None:
                     best_checkpoint["scaler"] = scaler.state_dict()
                 
                 torch.save(best_checkpoint, run_dir / "best.pth")
                 print(f"  New best PSNR: {best_psnr:.4f} dB (saved best.pth)")
-        else:
-            avg_psnr = resume_checkpoint.get("psnr", 0.0) if resume_checkpoint else 0.0
-            avg_ssim = resume_checkpoint.get("ssim", 0.0) if resume_checkpoint else 0.0
-        
         if (epoch + 1) % save_every == 0:
             model.eval()
             with torch.no_grad():
@@ -329,7 +276,7 @@ def main():
             "ssim": avg_ssim,
             "best_psnr": best_psnr,
             "run_dir": str(run_dir),
-            "global_step": global_step_offset + (epoch + 1) * len(train_loader),
+            "global_step": current_global_step,
         }
         if use_scaler and scaler is not None:
             last_checkpoint["scaler"] = scaler.state_dict()
@@ -339,7 +286,9 @@ def main():
         
         epoch_time = time.time() - epoch_start_time
         
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.6f}, PSNR: {avg_psnr:.4f} dB, SSIM: {avg_ssim:.6f}, Time: {epoch_time:.1f}s")
+        psnr_str = f"{avg_psnr:.4f} dB" if avg_psnr is not None else "N/A"
+        ssim_str = f"{avg_ssim:.6f}" if avg_ssim is not None else "N/A"
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.6f}, PSNR: {psnr_str}, SSIM: {ssim_str}, Time: {epoch_time:.1f}s")
     
     writer.close()
     print(f"\nTraining completed. Checkpoints saved to: {run_dir}")
